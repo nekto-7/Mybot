@@ -1,0 +1,89 @@
+using Discord;
+using Discord.WebSocket;
+using System;
+using System.Threading.Tasks;
+
+class Program
+{
+    private DiscordSocketClient _client;
+
+    public static void Main(string[] args) => new Program().RunBotAsync().GetAwaiter().GetResult();
+
+    public async Task RunBotAsync()
+    {
+        // Настройки клиента
+        var config = new DiscordSocketConfig
+        {
+            MessageCacheSize = 100,
+            GatewayIntents = GatewayIntents.MessageContent | GatewayIntents.Guilds | GatewayIntents.GuildMessages // Включаем необходимые интенты
+        };
+
+        _client = new DiscordSocketClient(config);
+
+        // Логирование
+        _client.Log += Log;
+
+        // Подписка на событие получения сообщения
+        _client.MessageReceived += HandleCommandAsync;
+
+        // Ваш токен (рекомендуется хранить в переменной окружения)
+        var token = " "; // Замените на ваш токен
+
+        // Логин и запуск бота
+        await _client.LoginAsync(TokenType.Bot, token);
+        await _client.StartAsync();
+
+        // Поддержание работы бота
+        await Task.Delay(-1);
+    }
+
+    // Обработчик команд
+    private async Task HandleCommandAsync(SocketMessage message)
+    {
+        // Логируем полученные сообщения
+        Console.WriteLine($"Получено сообщение: '{message.Content}' от {message.Author.Username} - Тип сообщения: {message.GetType().Name}");
+
+        // Проверяем, что это сообщение от пользователя, а не от бота
+        if (message is SocketUserMessage userMessage && !userMessage.Author.IsBot)
+        {
+            // Проверяем, что сообщение начинается с префикса "/"
+            if (userMessage.Content.StartsWith("/", StringComparison.OrdinalIgnoreCase))
+            {
+                // Удаляем префикс и получаем команду
+                var command = userMessage.Content.Substring(1).Trim().ToLower();
+
+                // Логирование команды
+                Console.WriteLine($"Команда: '{command}' от {userMessage.Author.Username}");
+
+                // Обработка команды
+                switch (command)
+                {
+                    case "hello":
+                        await message.Channel.SendMessageAsync("Привет!");
+                        Console.WriteLine("Отправлено сообщение: Привет!");
+                        break;
+
+                    default:
+                        await message.Channel.SendMessageAsync("Неизвестная команда.");
+                        Console.WriteLine($"Команда не распознана: {command}");
+                        break;
+                }
+            }
+            else
+            {
+                Console.WriteLine("Сообщение не начинается с префикса команды.");
+            }
+        }
+        else
+        {
+            Console.WriteLine("Сообщение было от бота или не является сообщением пользователя.");
+        }
+    }
+
+    // Логирование событий
+    private Task Log(LogMessage log)
+    {
+        Console.WriteLine(log);
+        return Task.CompletedTask;
+    }
+}

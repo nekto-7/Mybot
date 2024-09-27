@@ -1,0 +1,89 @@
+using System;
+using System.Threading.Tasks;
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+using Discord;
+using Discord.WebSocket;
+
+class Program
+{
+    private DiscordSocketClient _client;
+    private IWebDriver _chromeDriver;
+
+    public static void Main(string[] args) => new Program().RunBotAsync().GetAwaiter().GetResult();
+
+    public async Task RunBotAsync()
+    {
+        var config = new DiscordSocketConfig
+        {
+            MessageCacheSize = 100,
+            GatewayIntents = GatewayIntents.All
+        };
+
+        _client = new DiscordSocketClient(config);
+
+        // Ваш токен
+        var token = " "; // Замените на ваш токен
+        await _client.LoginAsync(TokenType.Bot, token);
+        await _client.StartAsync();
+
+        _client.MessageReceived += HandleCommandAsync;
+        _client.Log += Log;
+
+        // Бесконечный цикл, чтобы бот работал
+        await Task.Delay(-1);
+    }
+
+    // Логирование событий
+    private Task Log(LogMessage log)
+    {
+        Console.WriteLine(log);
+        return Task.CompletedTask;
+    }
+
+    // Обработчик команд
+    private async Task HandleCommandAsync(SocketMessage message)
+    {
+        if (message is SocketUserMessage userMessage && !userMessage.Author.IsBot)
+        {
+            if (userMessage.Content.StartsWith("/play ", StringComparison.OrdinalIgnoreCase))
+            {
+                var url = userMessage.Content.Substring(6).Trim(); // Получаем URL
+                await PlayMusicAsync(url);
+            }
+        }
+    }
+
+    // Метод для воспроизведения музыки через браузер
+    private async Task PlayMusicAsync(string url)
+    {
+        if (_chromeDriver == null)
+        {
+            // Настраиваем ChromeDriver
+            var chromeOptions = new ChromeOptions();
+            chromeOptions.AddArgument("--disable-gpu");
+            chromeOptions.AddArgument("--no-sandbox");
+            chromeOptions.AddArgument("--disable-dev-shm-usage");
+            chromeOptions.AddArgument("--mute-audio"); // Чтобы звук воспроизводился через Chrome
+            chromeOptions.AddArgument("--headless");   // Чтобы запускать браузер без UI
+
+            // Запускаем ChromeDriver
+            _chromeDriver = new ChromeDriver(chromeOptions);
+        }
+
+        // Открываем YouTube и воспроизводим видео
+        _chromeDriver.Navigate().GoToUrl(url);
+
+        // Ждем, пока страница загрузится и видео начнет воспроизводиться
+        await Task.Delay(5000); // Может потребоваться больше времени, в зависимости от скорости интернета
+
+        // Можно добавить логику проверки того, что видео воспроизводится
+        Console.WriteLine($"Воспроизведение видео с URL: {url}");
+    }
+
+    // Очистка ресурсов
+    ~Program()
+    {
+        _chromeDriver?.Quit(); // Закрытие браузера, если приложение завершает работу
+    }
+}

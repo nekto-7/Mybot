@@ -1,0 +1,167 @@
+using Discord;
+using Discord.Audio;
+using Discord.WebSocket;
+using NAudio.Wave;
+using System;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
+using YoutubeExplode;
+using YoutubeExplode.Common;
+
+class Program
+{
+    private DiscordSocketClient _client;
+
+    public static void Main(string[] args) => new Program().RunBotAsync().GetAwaiter().GetResult();
+
+    public async Task RunBotAsync()
+    {
+        var config = new DiscordSocketConfig
+        {
+            MessageCacheSize = 100,
+            GatewayIntents = GatewayIntents.MessageContent | GatewayIntents.Guilds | GatewayIntents.GuildMessages // Включаем необходимые интенты
+        };
+
+        _client = new DiscordSocketClient(config);
+
+        // Ваш токен
+        var token = " "; // Замените на ваш токен
+        await _client.LoginAsync(TokenType.Bot, token);
+        await _client.StartAsync();
+
+        _client.Log += Log;
+        _client.MessageReceived += HandleCommandAsync; // Обработка текстовых сообщений
+
+        // Бесконечный цикл, чтобы бот работал
+        await Task.Delay(-1);
+    }
+
+    // Обработчик команд
+    private async Task HandleCommandAsync(SocketMessage message)
+    {
+        // Логируем полученные сообщения
+        Console.WriteLine($"Получено сообщение: '{message.Content}' от {message.Author.Username}");
+
+        // Проверяем, что это сообщение от пользователя, а не от бота
+        if (message is SocketUserMessage userMessage && !userMessage.Author.IsBot)
+        {
+            // Проверяем, что сообщение начинается с префикса "/"
+            if (userMessage.Content.StartsWith("/", StringComparison.OrdinalIgnoreCase))
+            {
+                // Удаляем префикс и получаем команду
+                var command = userMessage.Content.Substring(1).Trim().ToLower();
+
+                // Логирование команды
+                Console.WriteLine($"Команда: '{command}' от {userMessage.Author.Username}");
+
+                // Обработка команды
+                switch (command)
+                {
+                    case "hello":
+                        await message.Channel.SendMessageAsync("Привет!");
+                        Console.WriteLine("Отправлено сообщение: Привет!");
+                        break;
+
+                    case var playCommand when playCommand.StartsWith("play "):
+                        // Получаем URL из сообщения
+                        var url = userMessage.Content.Substring(6).Trim(); // Убираем "/play " (6 символов)
+                        await PlayMusicAsync(userMessage.Author as SocketGuildUser, url);
+                        break;
+
+                    default:
+                        await message.Channel.SendMessageAsync("Неизвестная команда.");
+                        Console.WriteLine($"Команда не распознана: {command}");
+                        break;
+                }
+            }
+            else
+            {
+                Console.WriteLine("Сообщение не начинается с префикса команды.");
+            }
+        }
+        else
+        {
+            Console.WriteLine("Сообщение было от бота или не является сообщением пользователя.");
+        }
+    }
+
+    private async Task PlayMusicAsync(SocketGuildUser user, string url)
+    {
+        var voiceChannel = user.VoiceChannel;
+        if (voiceChannel == null)
+        {
+            Console.WriteLine("Вы должны быть в голосовом канале!");
+            return;
+        }
+
+        var audioClient = await voiceChannel.ConnectAsync();
+        var youtube = new YoutubeClient();
+
+        // Получение идентификатора видео
+        var videoId = GetVideoId(url);
+        if (string.IsNullOrEmpty(videoId))
+        {
+            Console.WriteLine("Неверный URL видео.");
+            return;
+        }
+
+        // Получение информации о видео
+        var video = await youtube.Videos.GetAsync(videoId);
+        var streamManifest = await youtube.Videos.Streams.GetManifestAsync(videoId);
+        
+        // Выбор первого доступного потока
+        var streamInfo = streamManifest.GetMuxedStreams().FirstOrDefault();
+        
+        if (streamInfo == null)
+        {
+            Console.WriteLine("Не удалось найти доступный поток.");
+            return;
+        }
+
+        var streamUrl = streamInfo.Url;
+        var ffmpeg = CreateStream(streamUrl);
+
+        // Подключение к AudioClient
+        var outputStream = audioClient.CreatePCMStream(AudioApplication.Music);
+        await ffmpeg.StandardOutput.BaseStream.CopyToAsync(outputStream);
+        await outputStream.FlushAsync();
+
+        ffmpeg.WaitForExit();
+    }
+
+    private string GetVideoId(string url)
+    {
+        var uri = new Uri(url);
+        if (uri.Host.Contains("youtube.com"))
+        {
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            return query["v"];
+        }
+        else if (uri.Host.Contains("youtu.be"))
+        {
+            return uri.Segments.Last();
+        }
+        return null;
+    }
+
+    private Process CreateStream(string url)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "ffmpeg",
+            Arguments = $"-i \"{url}\" -f mp3 -ac 2 -ar 48000 -b:a 192k pipe:1",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true
+        };
+
+        return Process.Start(startInfo);
+    }
+
+    private Task Log(LogMessage log)
+    {
+        Console.WriteLine(log);
+        return Task.CompletedTask;
+    }
+}

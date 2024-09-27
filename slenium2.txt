@@ -1,0 +1,136 @@
+using Discord;
+using Discord.Audio;
+using Discord.WebSocket;
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+
+class Program
+{
+    private DiscordSocketClient _client;
+    private IWebDriver _browserDriver;
+    private IAudioClient _audioClient; // Переменная для аудиоклиента
+
+    public static void Main(string[] args) => new Program().RunBotAsync().GetAwaiter().GetResult();
+
+    public async Task RunBotAsync()
+    {
+        var config = new DiscordSocketConfig
+        {
+            MessageCacheSize = 100,
+            GatewayIntents = GatewayIntents.All
+        };
+
+        _client = new DiscordSocketClient(config);
+        var token = " "; // Ваш токен
+        await _client.LoginAsync(TokenType.Bot, token);
+        await _client.StartAsync();
+
+        _client.MessageReceived += HandleCommandAsync;
+        _client.Log += Log;
+
+        await Task.Delay(-1);
+    }
+
+    private Task Log(LogMessage log)
+    {
+        Console.WriteLine(log);
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleCommandAsync(SocketMessage message)
+{
+    if (message is SocketUserMessage userMessage && !userMessage.Author.IsBot)
+    {
+        var guild = (message.Channel as SocketGuildChannel)?.Guild;
+        if (guild == null) return;
+
+        var user = message.Author as SocketGuildUser;
+        var userVoiceChannel = user?.VoiceChannel;
+
+        if (userVoiceChannel == null)
+        {
+            await message.Channel.SendMessageAsync("Вы должны быть в голосовом канале, чтобы я мог воспроизвести музыку.");
+            return;
+        }
+
+        if (userMessage.Content.StartsWith("/play ", StringComparison.OrdinalIgnoreCase))
+        {
+            // Подключаемся к голосовому каналу
+            await JoinVoiceChannel(userVoiceChannel);
+
+            // Получаем URL
+            var url = userMessage.Content.Substring(6).Trim();
+
+            // Воспроизводим музыку
+            await PlayMusicAsync(url);
+        }
+    }
+}
+
+
+    private async Task JoinVoiceChannel(SocketVoiceChannel voiceChannel)
+    {
+        if (_audioClient != null && _audioClient.ConnectionState == ConnectionState.Connected)
+        {
+            Console.WriteLine($"Бот уже подключен к голосовому каналу на сервере {voiceChannel.Guild.Name}.");
+            return; // Бот уже подключен к голосовому каналу
+        }
+
+        // Подключаем бота к голосовому каналу
+        Console.WriteLine($"Подключение к голосовому каналу: {voiceChannel.Name} на сервере {voiceChannel.Guild.Name}");
+        try
+        {
+            _audioClient = await voiceChannel.ConnectAsync();
+            Console.WriteLine($"Бот успешно подключен к голосовому каналу на сервере {voiceChannel.Guild.Name}.");
+            await Task.Delay(100); // Задержка для стабилизации подключения
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при подключении к голосовому каналу на сервере {voiceChannel.Guild.Name}: {ex.Message}");
+        }
+    }
+
+    private async Task PlayMusicAsync(string url)
+    {
+        if (_browserDriver == null)
+        {
+            var options = new ChromeOptions();
+            options.AddArgument("--disable-gpu");
+            options.AddArgument("--no-sandbox");
+            options.AddArgument("--disable-dev-shm-usage");
+            options.AddArgument("--mute-audio");
+            options.AddArgument("--headless");
+
+            var driverPath = @"E:\ds\fff"; // Укажите путь к yandexdriver.exe
+
+            // Инициализация YandexDriver с использованием ChromeDriver
+            try
+            {
+                _browserDriver = new ChromeDriver(driverPath, options); // Это должно работать для YandexDriver
+                Console.WriteLine("YandexDriver инициализирован.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при запуске YandexDriver: {ex.Message}");
+                return;
+            }
+        }
+
+        try
+        {
+            Console.WriteLine($"Открытие URL: {url}");
+            _browserDriver.Navigate().GoToUrl(url);
+            await Task.Delay(400); // Задержка для полной загрузки страницы
+            Console.WriteLine($"Воспроизведение видео с URL: {url}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при открытии URL: {ex.Message}");
+        }
+    }
+
+    ~Program()
+    {
+        _browserDriver?.Quit(); // Очистка ресурсов
+    }
+}
